@@ -1,0 +1,64 @@
+name: Windows NSIS installer
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows NSIS installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.18.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Tauri NSIS installer
+        run: pnpm tauri build --bundles nsis
+
+      - name: Verify NSIS installer
+        shell: pwsh
+        run: |
+          $installerDirectory = "src-tauri/target/release/bundle/nsis"
+          $installers = @(Get-ChildItem -Path $installerDirectory -Filter "*-setup.exe" -File)
+          if ($installers.Count -ne 1) {
+            throw "Expected exactly one NSIS setup.exe, found $($installers.Count)."
+          }
+          Get-FileHash -Path $installers[0].FullName -Algorithm SHA256 | Format-List
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: bloco-de-notas-windows-nsis
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 30
